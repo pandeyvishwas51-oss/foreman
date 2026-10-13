@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.env
+.DS_Store
+sandbox-accounts.csv
+.claude
+tools/demo-shell/build
+video/work

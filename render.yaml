@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: foreman
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/index.ts
+    healthCheckPath: /api/state
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAYX_ACCOUNT_NUMBER
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
