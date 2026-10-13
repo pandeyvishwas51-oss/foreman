@@ -95,6 +95,7 @@ export function App() {
   // the hammer, to the winner with the prize, then to the minutes. The month's events become scenes, and each
   // scene is held long enough to be watched, however fast the server went. Positions are measured from the page.
   const [spot, setSpot] = useState<Spot>(HOME);
+  const [heroFocused, setHeroFocused] = useState(true);
   const [walking, setWalking] = useState(false);
   const [playing, setPlaying] = useState(0);
   const sceneStart = useRef(0);
@@ -172,6 +173,29 @@ export function App() {
   useEffect(() => { setWalking(true); const t = setTimeout(() => setWalking(false), 1250); return () => clearTimeout(t); }, [spot.x, spot.y]);
   useEffect(() => { if (scene === "collect") document.getElementById("agents")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [scene === "collect", monthNow]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const onResize = () => setSpot((p) => ({ ...p })); window.addEventListener("resize", onResize); return () => window.removeEventListener("resize", onResize); }, []);
+  // The block nearest the middle of the screen is in focus; the others blur and sink back, like a camera racking focus.
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const blocks = [...document.querySelectorAll<HTMLElement>("[data-block]")];
+      const mid = window.innerHeight * 0.45;
+      let best: HTMLElement | null = null, bestD = Infinity;
+      for (const b of blocks) {
+        const r = b.getBoundingClientRect();
+        const d = r.top <= mid && r.bottom >= mid ? 0 : Math.min(Math.abs(r.top - mid), Math.abs(r.bottom - mid));
+        if (d < bestD) { bestD = d; best = b; }
+      }
+      for (const b of blocks) b.classList.toggle("is-focus", b === best);
+      setHeroFocused(Boolean(best && best.classList.contains("hero")));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    const id = setInterval(update, 1000);
+    return () => { window.removeEventListener("scroll", onScroll); window.removeEventListener("resize", onScroll); clearInterval(id); if (raf) cancelAnimationFrame(raf); };
+  }, []);
   // Sections slide in as they scroll into view.
   useEffect(() => {
     const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { rootMargin: "0px 0px -12% 0px" });
@@ -200,6 +224,13 @@ export function App() {
           {spot.mood === "payout" && <div className="burst" key={`burst-${month}`}>{Array.from({ length: 7 }, (_, i) => <Flower key={i} className={`pop pop-${i + 1}`} size={34 + (i % 3) * 14} petals={5 + (i % 2)} />)}</div>}
         </div>
       </div>
+      {c.status !== "setup" && (
+        <div className={`dock${heroFocused ? "" : " is-shown"}`}>
+          <span className="mono">( {c.name.toUpperCase()} ) + ( MONTH {Math.min(c.month_done + (running ? 1 : 0), c.members)} / {c.members} )</span>
+          {c.status === "running" && <button className="pill pill-small" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/month")}>{running ? state.busy : `Run month ${c.month_done + 1}`}{!running && state.dueNext != null && <small>{inr(state.dueNext)} due per ticket</small>}</button>}
+          {complete && <span className="pill pill-small pill-red">Chit complete</span>}
+        </div>
+      )}
       <div className="ticker" aria-hidden="true"><div>{Array.from({ length: 2 }, (_, k) => <span key={k}>+ ( CHIT FUND ) ( AI AGENTS ) + ( RAZORPAY MANDATES ) ( OPEN AUCTION ) + ( SHARE OF DISCOUNT ) ( RAZORPAYX PAYOUT ) + ( CHIT FUNDS ACT 1982 ) ( MINUTES OF THE DRAW ) </span>)}</div></div>
       <header className="nav">
         <span className="wordmark">FOREMAN</span>
@@ -207,13 +238,13 @@ export function App() {
         <span className="mono nav-right">+ ( {state.rails === "razorpay-test" ? "RAZORPAY TEST MODE" : "RAZORPAY SIMULATED"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
       </header>
 
-      <section className="hero" id="chit" aria-label="The chit">
+      <section className="hero" id="chit" data-block aria-label="The chit">
         <h1 className="giant" aria-label={headline.replace("|", " ")} key={headline}>
           {headline.split("").map((ch, i) => ch === "|" || ch === " " ? <span key={i} className="ch ch-space" /> : <span key={i} className={`ch${i >= headline.indexOf("|") && headline.includes("|") ? " ch-heat" : ""}`} style={{ animationDelay: `${0.9 + i * 0.045}s` }}>{ch}</span>)}
         </h1>
         <div className="panel panel-yellow hero-panel">
-          <span className="rail rail-l mono" aria-hidden="true">+ ( CHIT ) ( AUCTION ) + ( SHARE OF DISCOUNT ) + ( RAZORPAY ) + ( CHIT ) ( AUCTION ) +</span>
-          <span className="rail rail-r mono" aria-hidden="true">+ ( MANDATE ) ( PAYOUT ) + ( MINUTES OF THE DRAW ) + ( HATHI ) + ( MANDATE ) ( PAYOUT ) +</span>
+          <span className="rail rail-l mono" aria-hidden="true"><span className="rail-track">{"+ ( CHIT ) ( AUCTION ) + ( SHARE OF DISCOUNT ) + ( RAZORPAY ) ".repeat(4)}</span></span>
+          <span className="rail rail-r mono" aria-hidden="true"><span className="rail-track">{"+ ( MANDATE ) ( PAYOUT ) + ( MINUTES OF THE DRAW ) + ( HATHI ) ".repeat(4)}</span></span>
           <Flower className="deco deco-1 burst-load" size={120} />
           <Flower className="deco deco-2 burst-load" size={70} petals={5} />
           <svg className="deco deco-3 burst-load" viewBox="0 0 64 60" width="64" height="60" aria-hidden="true"><path d="M32 58 C8 42 0 30 0 18 A14 14 0 0 1 32 12 A14 14 0 0 1 64 18 C64 30 56 42 32 58 Z" /></svg>
@@ -249,7 +280,7 @@ export function App() {
           <p className="notice mono">( {mandates} OF {state.members.length} MANDATES AUTHORISED ) {state.rails === "razorpay-test" ? "OPEN EACH SUBSCRIBER'S REGISTRATION LINK (ALL TICKETS TAB) AND AUTHORISE IT WITH A RAZORPAY TEST CARD; UNTIL THEN THAT TICKET PAYS BY PAYMENT LINK." : "THE SIMULATED SUBSCRIBERS AUTHORISE THEIRS IN A MOMENT."}</p>
         )}
 
-        <section className="what" data-reveal aria-label="What Hathi does">
+        <section className="what" data-reveal data-block aria-label="What Hathi does">
           <span className="mono what-cap what-cap-1">EVERY MONTH</span>
           <span className="line line-1" aria-hidden="true" /><button className="pill pill-small line-btn line-btn-1" onClick={() => document.getElementById("agents")?.scrollIntoView({ behavior: "smooth" })}>Watch the ring</button>
           <h2 className="stack"><span>WHAT</span><span className="heat">HATHI</span><span className="chip-row">* <i className="paren">(</i><span className="chip"><Mascot mood="idle" /></span><i className="paren">)</i></span><span>DOES</span></h2>
@@ -257,14 +288,14 @@ export function App() {
           <span className="line line-2" aria-hidden="true" /><a className="pill pill-small line-btn line-btn-2" href={state.draws.length ? `/api/minutes/${state.draws.at(-1)!.month}` : "#ledger"} target={state.draws.length ? "_blank" : undefined} rel="noreferrer">Read the minutes</a>
         </section>
 
-        <ol className="steps" data-reveal aria-label="How a month runs">
+        <ol className="steps" data-reveal data-block aria-label="How a month runs">
           <li className={stepState(0)}><strong>Collect the instalments</strong><em className="mono">( RAZORPAY MANDATES )</em></li>
           <li className={stepState(1)}><strong>Auction the pot</strong><em className="mono">( ONE AGENT PER SUBSCRIBER )</em></li>
           <li className={stepState(2)}><strong>Pay the prize</strong><em className="mono">( RAZORPAYX PAYOUT )</em></li>
           <li className={stepState(3)}><strong>Record the minutes</strong><em className="mono">( CODE, UNDER THE ACT )</em></li>
         </ol>
 
-        <div className="work" id="agents" data-reveal>
+        <div className="work" id="agents" data-reveal data-block>
           <section className="card map" aria-label="The chit">
             <Ring members={state.members} answers={answers} draw={draw} month={month} pot={pot} phase={phase} />
             <p className="key">
@@ -276,7 +307,7 @@ export function App() {
         </div>
 
         {state.draws.length > 0 && (
-          <section className="card outcomes" id="outcomes" data-reveal aria-label="What each subscriber got">
+          <section className="card outcomes" id="outcomes" data-reveal data-block aria-label="What each subscriber got">
             <h2 className="display">WHO GOT WHAT{complete ? "" : " SO FAR"}</h2>
             <p className="sub">{complete ? "The rate is the yearly rate implied by each ticket's own cash flows: a borrowing cost for those prized early, a saving return for those prized late. For comparison, a personal loan is 14–24% and a fixed deposit about 7%." : "Rates appear once the chit completes."}</p>
             <ul className="people">
@@ -293,9 +324,9 @@ export function App() {
           </section>
         )}
 
-        <div id="ledger" data-reveal><Ledger state={state} /></div>
+        <div id="ledger" data-reveal data-block><Ledger state={state} /></div>
 
-        <div className="tiles" data-reveal>
+        <div className="tiles" data-reveal data-block>
           <div className="tile"><strong>{c.members - 1}</strong><span className="mono">( AGENTS, ONE PER SUBSCRIBER )</span></div>
           <div className="tile"><strong>0</strong><span className="mono">( RUPEES DECIDED BY A MODEL )</span></div>
           <div className="tile"><strong>3</strong><span className="mono">( RAZORPAY RAILS: MANDATES, LINKS, PAYOUTS )</span></div>

@@ -41,6 +41,8 @@ a { color: inherit; }
 .hero-panel > * { animation: fadeIn 0.5s ease-out 1.2s both; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .rail { position: absolute; top: 24px; bottom: 24px; writing-mode: vertical-rl; color: var(--red); overflow: hidden; white-space: nowrap; font-size: 10.5px; }
+.rail-track { display: inline-block; animation: railmove 36s linear infinite; }
+@keyframes railmove { to { transform: translateY(-50%); } }
 .rail-l { left: 18px; transform: rotate(180deg); } .rail-r { right: 18px; }
 .hero-corner { position: absolute; right: 56px; bottom: 14px; max-width: 420px; text-align: right; font-size: 10.5px; }
 .hero-copy { display: grid; gap: 16px; align-content: start; }
@@ -290,7 +292,18 @@ details blockquote { margin-top: 6px; padding: 8px 12px; border-radius: 12px; ba
 .display { font: 400 clamp(32px, 4vw, 56px)/0.95 var(--display); letter-spacing: -0.01em; }
 
 /* scroll reveal */
-[data-reveal] { opacity: 0; transform: translateY(28px); transition: opacity 0.7s ease-out, transform 0.8s cubic-bezier(.2,.8,.2,1); }
-[data-reveal].in { opacity: 1; transform: none; }
+/* reveal: blocks arrive from below, blurred, and snap into focus */
+[data-reveal] { opacity: 0; transform: translateY(40px) scale(0.98); filter: blur(14px); transition: opacity 0.8s ease-out, transform 0.9s cubic-bezier(.2,.8,.2,1), filter 0.9s ease-out; }
+[data-reveal].in { opacity: 1; transform: none; filter: blur(0); }
+/* focus: only the block in the middle of the screen is sharp */
+[data-block] { transition: filter 0.7s ease, opacity 0.7s ease, transform 0.9s cubic-bezier(.2,.8,.2,1); will-change: filter, transform; }
+[data-block].in:not(.is-focus), .hero[data-block]:not(.is-focus) { filter: blur(6px); opacity: 0.45; transform: scale(0.985); }
+[data-block].is-focus { filter: blur(0); opacity: 1; transform: none; }
+.hero.is-focus .hero-panel, .hero.is-focus .giant { filter: none; }
 @media (max-width: 1100px) { .what-cap, .line, .line-btn { display: none; } .rail, .hero-corner { display: none; } .panel { padding: 28px 28px 26px; } }
-@media (prefers-reduced-motion: reduce) { .giant .ch, .hero-panel, .hero-panel > *, .actor, .burst-load, [data-reveal] { animation: none !important; transform: none !important; opacity: 1 !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .giant .ch, .hero-panel, .hero-panel > *, .actor, .burst-load, [data-reveal], [data-block], .rail-track { animation: none !important; transform: none !important; opacity: 1 !important; filter: none !important; transition: none !important; } }
+
+/* dock: the month button follows the reader once the hero is out of focus */
+.dock { position: fixed; left: 50%; bottom: 22px; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 18px; border-radius: 14px; background: var(--yellow); border: 1.5px solid var(--ink); box-shadow: 0 16px 40px rgb(0 0 0 / 0.25); transform: translate(-50%, 140%); opacity: 0; transition: transform 0.6s cubic-bezier(.2,.8,.2,1), opacity 0.4s; }
+.dock.is-shown { transform: translate(-50%, 0); opacity: 1; }
+.dock .pill-small { padding: 9px 18px; }
