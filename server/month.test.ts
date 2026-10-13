@@ -69,3 +69,15 @@ test("an agent that fails means no bid, never a guess", async () => {
   assert.equal(bid.source, "fail-closed");
   assert.notEqual(deps.db.draws()[1].winner, "meena");
 });
+
+test("a month interrupted after its draw resumes without a second auction or a second prize", async () => {
+  const deps = await open();
+  await runMonth(deps); await runMonth(deps);
+  // Pretend month 2 crashed right after the prize was sent: reopen it and run again.
+  deps.db.run("UPDATE chit SET month_done = 1");
+  await runMonth(deps);
+  assert.equal(deps.db.all("SELECT 1 FROM draw WHERE month = 2").length, 1);
+  assert.equal(deps.db.all("SELECT 1 FROM payout WHERE month = 2 AND kind = 'prize'").length, 1);
+  assert.equal(deps.db.all("SELECT 1 FROM collection WHERE month = 2").length, 10);
+  assert.equal(deps.db.chit()!.month_done, 2);
+});

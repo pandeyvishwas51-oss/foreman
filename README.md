@@ -76,6 +76,8 @@ Razorpay's rails.
 
 ## Honesty notes
 
+The HTTP API has no authentication: it is a single-chit demo, with the model-calling route capped per hour. Put it behind a login before pointing it at anything but test keys.
+
 FOREMAN is a demonstration on Razorpay's test mode. It is not a registered chit fund and moves no real money. The discount ceiling
 is configurable because it is set by state rules; the commission cap of 7% is from the Act as amended in 2019. Rule-based agents
 pause between answers only so the page can be read.

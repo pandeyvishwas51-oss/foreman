@@ -2,7 +2,7 @@
 // the chit on Razorpay, and reconciling whatever Razorpay has not confirmed yet.
 // Order of trust: the engine does the maths, the agents decide how keen each subscriber is, Razorpay holds the money.
 import type { Brain } from "./brain.ts";
-import type { Collection, Db, Member, Payout } from "./db.ts";
+import type { Collection, Db, DrawRow, Member, Payout } from "./db.ts";
 import { audit, ceilingDiscount, dueThisMonth, floorDiscount, instalment, settle, type Bid, type Draw } from "./engine.ts";
 import { inr, type Rails } from "./rails.ts";
 
@@ -62,51 +62,63 @@ export async function runMonth(deps: Deps) {
   const due = dueThisMonth(t, previous);
   const members = db.members();
 
-  // 1. Collect. A mandate is debited; without one, or if the debit is declined, a payment link goes out instead.
-  say("foreman", "info", `Month ${month}: ${inr(due)} due from each of ${members.length} tickets${previous ? ` (${inr(instalment(t))} less ${inr(previous.share)} share of last month's discount)` : ""}.`);
-  await refreshMandates(deps);
-  const onMandate = db.members().filter((m) => m.mandate_status === "active" && m.token_id).length;
-  if (onMandate) say("razorpay", "debit", `Debiting ${inr(due)} from ${onMandate} tickets against their standing mandates${onMandate < members.length ? `; ${members.length - onMandate} without a mandate get a payment link` : ""}.`);
-  await Promise.all(db.members().map((m) => collect(deps, month, m, due)));
-  await waitForCollections(deps, month);
-  // Demo pacing: the collection round lasts long enough to be watched, as a real one lasts days.
-  await sleep(Math.min(6000, members.length * (deps.paceMs ?? 450)));
-  const paid = db.all<Collection>("SELECT * FROM collection WHERE month = ? AND status = 'paid'", month);
-  const late = db.members().filter((m) => !paid.some((c) => c.member === m.id));
-  for (const m of late) db.run("UPDATE member SET arrears = arrears + 1 WHERE id = ?", m.id);
-  say("razorpay", "collected", `${inr(paid.reduce((s, c) => s + c.amount, 0))} collected from ${paid.length} of ${members.length} tickets${late.length ? `; ${late.map((m) => m.name).join(", ")} in arrears, so not eligible to bid this month` : ""}.`);
+  // A month interrupted after its draw (crash, restart) resumes here: the draw stands, nothing is auctioned or
+  // collected twice, and the prize is paid only if no payout for it is already on its way.
+  const earlier = db.get<DrawRow>("SELECT * FROM draw WHERE month = ?", month);
+  let draw: Draw, winner: Member;
+  if (earlier) {
+    draw = { ...earlier, bidders: JSON.parse(earlier.bidders) as string[], secondBest: earlier.second_best, how: earlier.how as Draw["how"] };
+    winner = draw.winner === "foreman" ? db.members().find((m) => m.is_foreman)! : db.member(draw.winner);
+    say("foreman", "info", `Resuming month ${month}: the draw already stood, so only the payout is checked.`);
+  } else {
+    // 1. Collect. A mandate is debited; without one, or if the debit is declined, a payment link goes out instead.
+    say("foreman", "info", `Month ${month}: ${inr(due)} due from each of ${members.length} tickets${previous ? ` (${inr(instalment(t))} less ${inr(previous.share)} share of last month's discount)` : ""}.`);
+    await refreshMandates(deps);
+    const onMandate = db.members().filter((m) => m.mandate_status === "active" && m.token_id).length;
+    if (onMandate) say("razorpay", "debit", `Debiting ${inr(due)} from ${onMandate} tickets against their standing mandates${onMandate < members.length ? `; ${members.length - onMandate} without a mandate get a payment link` : ""}.`);
+    await Promise.all(db.members().map((m) => collect(deps, month, m, due)));
+    await waitForCollections(deps, month);
+    // Demo pacing: the collection round lasts long enough to be watched, as a real one lasts days.
+    await sleep(Math.min(6000, members.length * (deps.paceMs ?? 450)));
+    const paid = db.all<Collection>("SELECT * FROM collection WHERE month = ? AND status = 'paid'", month);
+    const late = db.members().filter((m) => !paid.some((c) => c.member === m.id));
+    for (const m of late) db.run("UPDATE member SET arrears = arrears + 1 WHERE id = ?", m.id);
+    say("razorpay", "collected", `${inr(paid.reduce((s, c) => s + c.amount, 0))} collected from ${paid.length} of ${members.length} tickets${late.length ? `; ${late.map((m) => m.name).join(", ")} in arrears, so not eligible to bid this month` : ""}.`);
 
-  // 2. Auction. Each unprized, paid-up subscriber's agent names its ceiling; the engine settles the draw.
-  const eligible = db.members().filter((m) => !m.is_foreman && m.prized_month === null && !late.some((l) => l.id === m.id)).map((m) => m.id);
-  const unprized = db.members().filter((m) => !m.is_foreman && m.prized_month === null);
-  const ctx = {
-    chitName: chit.name, month, months: t.members, gross: t.gross, instalment: instalment(t), due,
-    floorPct: t.commissionPct, ceilingPct: t.maxDiscountPct, lastDiscountPct: previous && previous.how !== "foreman" ? pct(previous.discount, t.gross) : null,
-    eligible: eligible.length, prizedSoFar: draws.map((d) => d.winner).filter((w) => w !== "foreman").map((w) => db.member(w).name),
-  };
-  const bids: Bid[] = [];
-  if (!(t.foremanFirst && month === 1) && eligible.length > 1) {
-    say("foreman", "auction", `Auction open for month ${month}: floor ${t.commissionPct}%, ceiling ${t.maxDiscountPct}%, ${eligible.length} subscribers may bid.`);
-    await Promise.all(unprized.filter((m) => eligible.includes(m.id)).map(async (m) => {
-      const call = await brain.decideBid(m, ctx).catch((e) => ({ wants: false, maxDiscountPct: t.commissionPct, reason: `My agent could not answer, so I am not bidding this month (${errText(e)}).`, failed: true }));
-      const source = "failed" in call ? "fail-closed" : brain.kind;
-      db.run("INSERT INTO bid (month, member, wants, max_discount_pct, reason, source) VALUES (?, ?, ?, ?, ?, ?)", month, m.id, call.wants ? 1 : 0, call.maxDiscountPct, call.reason, source);
-      if (call.wants) bids.push({ member: m.id, maxDiscountPct: call.maxDiscountPct });
-      say(m.id, call.wants ? "bid" : "pass", call.reason, { pct: call.wants ? call.maxDiscountPct : null });
-    }));
+    // 2. Auction. Each unprized, paid-up subscriber's agent names its ceiling; the engine settles the draw.
+    const eligible = db.members().filter((m) => !m.is_foreman && m.prized_month === null && !late.some((l) => l.id === m.id)).map((m) => m.id);
+    const unprized = db.members().filter((m) => !m.is_foreman && m.prized_month === null);
+    const ctx = {
+      chitName: chit.name, month, months: t.members, gross: t.gross, instalment: instalment(t), due,
+      floorPct: t.commissionPct, ceilingPct: t.maxDiscountPct, lastDiscountPct: previous && previous.how !== "foreman" ? pct(previous.discount, t.gross) : null,
+      eligible: eligible.length, prizedSoFar: draws.map((d) => d.winner).filter((w) => w !== "foreman").map((w) => db.member(w).name),
+    };
+    const bids: Bid[] = [];
+    if (!(t.foremanFirst && month === 1) && eligible.length > 1) {
+      say("foreman", "auction", `Auction open for month ${month}: floor ${t.commissionPct}%, ceiling ${t.maxDiscountPct}%, ${eligible.length} subscribers may bid.`);
+      await Promise.all(unprized.filter((m) => eligible.includes(m.id)).map(async (m) => {
+        const call = await brain.decideBid(m, ctx).catch((e) => ({ wants: false, maxDiscountPct: t.commissionPct, reason: `My agent could not answer, so I am not bidding this month (${errText(e)}).`, failed: true }));
+        const source = "failed" in call ? "fail-closed" : brain.kind;
+        db.run("INSERT INTO bid (month, member, wants, max_discount_pct, reason, source) VALUES (?, ?, ?, ?, ?, ?)", month, m.id, call.wants ? 1 : 0, call.maxDiscountPct, call.reason, source);
+        if (call.wants) bids.push({ member: m.id, maxDiscountPct: call.maxDiscountPct });
+        say(m.id, call.wants ? "bid" : "pass", call.reason, { pct: call.wants ? call.maxDiscountPct : null });
+      }));
+    }
+    draw = settle(t, month, bids, eligible, chit.seed);
+    winner = draw.winner === "foreman" ? db.members().find((m) => m.is_foreman)! : db.member(draw.winner);
+    const minutes = writeMinutes(chit.name, t, month, draw, db.all<{ member: string; wants: number; max_discount_pct: number }>("SELECT member, wants, max_discount_pct FROM bid WHERE month = ?", month).map((b) => ({ ...b, name: db.member(b.member).name })), winner.name, late.map((m) => m.name));
+    db.run("INSERT INTO draw (month, winner, discount, prize, commission, share, how, bidders, second_best, minutes, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      month, draw.winner, draw.discount, draw.prize, draw.commission, draw.share, draw.how, JSON.stringify(draw.bidders), draw.secondBest, minutes, db.now());
+    db.run("UPDATE member SET prized_month = ? WHERE id = ?", month, winner.id);
+    const how = draw.how === "foreman" ? "takes month one at the floor, as agreed" : draw.how === "last" ? "is the last unprized subscriber and takes the pot at the floor" : draw.how === "lot" ? "won the lot" : `won the auction (runner-up stopped at ${pct(draw.secondBest!, t.gross)}%)`;
+    say("foreman", "hammer", `${winner.name} ${how}: discount ${pct(draw.discount, t.gross)}%, so ${inr(draw.prize)} to ${winner.name}, ${inr(draw.commission)} foreman's commission, and ${inr(draw.share)} off every ticket's next instalment.`, { winner: winner.id, pct: pct(draw.discount, t.gross) });
   }
-  const draw = settle(t, month, bids, eligible, chit.seed);
-  const winner = draw.winner === "foreman" ? db.members().find((m) => m.is_foreman)! : db.member(draw.winner);
-  const minutes = writeMinutes(chit.name, t, month, draw, db.all<{ member: string; wants: number; max_discount_pct: number }>("SELECT member, wants, max_discount_pct FROM bid WHERE month = ?", month).map((b) => ({ ...b, name: db.member(b.member).name })), winner.name, late.map((m) => m.name));
-  db.run("INSERT INTO draw (month, winner, discount, prize, commission, share, how, bidders, second_best, minutes, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    month, draw.winner, draw.discount, draw.prize, draw.commission, draw.share, draw.how, JSON.stringify(draw.bidders), draw.secondBest, minutes, db.now());
-  db.run("UPDATE member SET prized_month = ? WHERE id = ?", month, winner.id);
-  const how = draw.how === "foreman" ? "takes month one at the floor, as agreed" : draw.how === "last" ? "is the last unprized subscriber and takes the pot at the floor" : draw.how === "lot" ? "won the lot" : `won the auction (runner-up stopped at ${pct(draw.secondBest!, t.gross)}%)`;
-  say("foreman", "hammer", `${winner.name} ${how}: discount ${pct(draw.discount, t.gross)}%, so ${inr(draw.prize)} to ${winner.name}, ${inr(draw.commission)} foreman's commission, and ${inr(draw.share)} off every ticket's next instalment.`, { winner: winner.id, pct: pct(draw.discount, t.gross) });
 
   // 3. Pay out. The prize goes by RazorpayX payout; the commission stays with the foreman, as a ledger entry.
-  db.run("INSERT INTO payout (month, member, amount, kind, idempotency, status, at) VALUES (?, 'foreman', ?, 'commission', ?, 'retained', ?)", month, draw.commission, `FM-C-M${month}`, db.now());
-  await payPrize(deps, month, winner, draw.prize, 1);
+  db.run("INSERT OR IGNORE INTO payout (month, member, amount, kind, idempotency, status, at) VALUES (?, 'foreman', ?, 'commission', ?, 'retained', ?)", month, draw.commission, `FM-C-M${month}`, db.now());
+  const prizeRows = db.all<Payout>("SELECT * FROM payout WHERE month = ? AND kind = 'prize' ORDER BY id", month);
+  if (!prizeRows.length) await payPrize(deps, month, winner, draw.prize, 1);
+  else if (prizeRows.every((p) => p.status === "failed" || p.status === "reversed")) await payPrize(deps, month, winner, draw.prize, prizeRows.length + 1);
   // Give the bank a moment to confirm; in test mode RazorpayX waits for a click in the dashboard, so this is bounded.
   const until = Date.now() + (deps.payoutWaitMs ?? 5000);
   while (Date.now() < until && db.get("SELECT 1 FROM payout WHERE month = ? AND kind = 'prize' AND status IN ('sent', 'processing')", month)) {
