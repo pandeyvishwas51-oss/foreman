@@ -8,7 +8,7 @@ export type PaymentState = "created" | "authorized" | "captured" | "failed" | "u
 export type PayoutState = { status: "queued" | "pending" | "processing" | "processed" | "cancelled" | "reversed" | "rejected" | "failed"; utr: string | null; detail?: string };
 
 export interface Rails {
-  readonly mode: "razorpay-test" | "simulated";
+  readonly mode: "razorpay-test" | "razorpay-test-no-x" | "simulated";
   createCustomer(p: Person, reference: string): Promise<string>;
   // A one-time authorisation the subscriber completes once; every later instalment is debited against it.
   createMandate(customerId: string, p: Person, maxAmount: number, reference: string): Promise<MandateLink>;

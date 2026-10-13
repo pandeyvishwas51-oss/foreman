@@ -34,6 +34,7 @@ export function Agents({ members, events, bids, month, thinking, agents, instalm
                 <h4>{m.name}<span>{m.trade} · ticket {m.ticket}</span></h4>
                 <div className="meter-row">
                   <span className={`tag tag-${m.mandate_status}`}>{{ none: "no mandate", sent: "mandate awaiting authorisation", active: `mandate active, up to ${inr(instalment ?? 0)}/month`, failed: "mandate refused: pays by link" }[m.mandate_status]}</span>
+                  {m.mandate_status === "sent" && m.mandate_url && <a className="tag" href={m.mandate_url} target="_blank" rel="noreferrer">authorise →</a>}
                   {m.prized_month !== null && <span className="tag tag-prized">prized month {m.prized_month}</span>}
                   {m.arrears > 0 && <span className="tag tag-late">in arrears</span>}
                 </div>

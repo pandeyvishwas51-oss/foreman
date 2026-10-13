@@ -8,7 +8,7 @@ export type Event = { id: number; month: number | null; at: string; actor: strin
 export type Received = { id: string; event: string; ref: string | null; at: string; outcome: string | null };
 export type Outcome = { id: string; paidIn: number; received: number; yearlyRate: number | null };
 export type State = {
-  rails: "razorpay-test" | "simulated"; agents: "claude" | "scripted"; webhooks: boolean; busy: string | null;
+  rails: "razorpay-test" | "razorpay-test-no-x" | "simulated"; agents: "claude" | "scripted"; webhooks: boolean; busy: string | null;
   chit: Chit | null; instalment: number | null; dueNext: number | null; members: Member[]; draws: Draw[]; bids: Bid[]; collections: Collection[]; payouts: Payout[];
   events: Event[]; received: Received[]; outcomes: Outcome[]; audit: string[] | null;
 };

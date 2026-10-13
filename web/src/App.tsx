@@ -235,7 +235,7 @@ export function App() {
       <header className="nav">
         <span className="wordmark">FOREMAN</span>
         <nav className="mono">{[["#chit", "CHIT"], ["#agents", "AGENTS"], ["#outcomes", "OUTCOMES"], ["#ledger", "LEDGER"]].map(([h, l]) => <a key={h} href={h}><i>(</i> {l} <i>)</i></a>)}</nav>
-        <span className="mono nav-right">+ ( {state.rails === "razorpay-test" ? "RAZORPAY TEST MODE" : "RAZORPAY SIMULATED"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
+        <span className="mono nav-right">+ ( {state.rails === "razorpay-test" ? "RAZORPAY TEST MODE" : state.rails === "razorpay-test-no-x" ? "RAZORPAY TEST MODE · PAYOUTS SIMULATED" : "RAZORPAY SIMULATED"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
       </header>
 
       <section className="hero" id="chit" data-block aria-label="The chit">
@@ -272,12 +272,13 @@ export function App() {
           </dl>
         </div>
         {state.rails === "simulated" && <p className="mono strip">( SIMULATED RAZORPAY + RULE-BASED AGENTS ) + ( WITH TEST KEYS AND A MODEL THE SAME CODE MOVES TEST MONEY AND THE AGENTS THINK FOR THEMSELVES )</p>}
+        {state.rails === "razorpay-test-no-x" && <p className="mono strip">( RAZORPAY TEST MODE: CUSTOMERS, MANDATES, DEBITS, PAYMENT LINKS, CONTACTS AND FUND ACCOUNTS ARE REAL ) + ( THE PRIZE PAYOUT RUNS ON THE SIMULATED RAIL: RAZORPAYX NEEDS A BUSINESS CURRENT ACCOUNT THIS MERCHANT DOES NOT HAVE )</p>}
       </section>
 
       <main className="page">
         {problem && <p className="problem mono" role="alert">( PROBLEM ) {problem}</p>}
         {c.status === "running" && mandates < state.members.length && (
-          <p className="notice mono">( {mandates} OF {state.members.length} MANDATES AUTHORISED ) {state.rails === "razorpay-test" ? "OPEN EACH SUBSCRIBER'S REGISTRATION LINK (ALL TICKETS TAB) AND AUTHORISE IT WITH A RAZORPAY TEST CARD; UNTIL THEN THAT TICKET PAYS BY PAYMENT LINK." : "THE SIMULATED SUBSCRIBERS AUTHORISE THEIRS IN A MOMENT."}</p>
+          <p className="notice mono">( {mandates} OF {state.members.length} MANDATES AUTHORISED ) {state.rails !== "simulated" ? "OPEN EACH SUBSCRIBER'S REGISTRATION LINK (ALL TICKETS TAB) AND AUTHORISE IT WITH A RAZORPAY TEST CARD; UNTIL THEN THAT TICKET PAYS BY PAYMENT LINK." : "THE SIMULATED SUBSCRIBERS AUTHORISE THEIRS IN A MOMENT."}</p>
         )}
 
         <section className="what" data-reveal data-block aria-label="What Hathi does">

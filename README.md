@@ -37,6 +37,9 @@ rails (customers, registration links for mandates, recurring debits, Payment Lin
 `ANTHROPIC_API_KEY` turns on the Claude agents (`FOREMAN_AGENTS=claude-plan` uses the Claude subscription signed in on the
 machine instead). Live keys are refused in code.
 
+Without `RAZORPAYX_ACCOUNT_NUMBER` (RazorpayX needs a business current account), every call is real except the prize
+payout, which runs on the simulated rail; the page says so in the header.
+
 In test mode each subscriber's registration link must be authorised once with a Razorpay test card (the page lists the links under
 *All 10 tickets*); after that every debit is API-driven. RazorpayX test payouts sit in *processing* until advanced in the dashboard.
 

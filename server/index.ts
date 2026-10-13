@@ -10,6 +10,7 @@ import { seed } from "./seed.ts";
 const config = loadConfig();
 // The simulated Razorpay lives in memory, so its books must too; otherwise a restart would leave them disagreeing.
 const db = openDb(config.live ? undefined : ":memory:");
+if (!config.live) { /* simulated books live in memory */ }
 const deps: Deps = { db, rails: config.rails, brain: config.brain, waitMs: config.live ? 25000 : 6000 };
 
 let busy: string | null = null;
