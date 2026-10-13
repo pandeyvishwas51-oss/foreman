@@ -172,10 +172,19 @@ export function App() {
   useEffect(() => { setWalking(true); const t = setTimeout(() => setWalking(false), 1250); return () => clearTimeout(t); }, [spot.x, spot.y]);
   useEffect(() => { if (scene === "collect") document.getElementById("agents")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [scene === "collect", monthNow]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const onResize = () => setSpot((p) => ({ ...p })); window.addEventListener("resize", onResize); return () => window.removeEventListener("resize", onResize); }, []);
+  // Sections slide in as they scroll into view.
+  useEffect(() => {
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { rootMargin: "0px 0px -12% 0px" });
+    const scan = () => document.querySelectorAll("[data-reveal]:not(.in)").forEach((el) => io.observe(el));
+    scan();
+    const id = setInterval(scan, 1500);
+    return () => { clearInterval(id); io.disconnect(); };
+  }, []);
 
   if (!state || !view) return <main className="page loading">Loading FOREMAN…</main>;
   const { c, running, month, phase, draw, answers, thinking, paid, prizes, commission, shares, pot } = view;
   const mood: Mood = c.status === "complete" ? "done" : spot.mood;
+  const headline = c.status === "setup" ? "THE CHIT" : c.status === "complete" ? "SETTLED" : `MONTH|${String(Math.min(c.month_done + (running ? 1 : 0), c.members)).padStart(2, "0")}`;
   const mandates = state.members.filter((m) => m.mandate_status === "active").length;
   const complete = c.status === "complete";
   const stepState = (i: number) => (phase === "idle" ? "" : ["collect", "auction", "payout", "done"].indexOf(phase) > i ? "is-done" : ["collect", "auction", "payout", "done"].indexOf(phase) === i ? (running || phase !== "done" ? "is-active" : "is-done") : "");
@@ -194,19 +203,22 @@ export function App() {
       <div className="ticker" aria-hidden="true"><div>{Array.from({ length: 2 }, (_, k) => <span key={k}>+ ( CHIT FUND ) ( AI AGENTS ) + ( RAZORPAY MANDATES ) ( OPEN AUCTION ) + ( SHARE OF DISCOUNT ) ( RAZORPAYX PAYOUT ) + ( CHIT FUNDS ACT 1982 ) ( MINUTES OF THE DRAW ) </span>)}</div></div>
       <header className="nav">
         <span className="wordmark">FOREMAN</span>
-        <nav className="mono"><a href="#chit">( CHIT )</a> <a href="#agents">( AGENTS )</a> <a href="#outcomes">( OUTCOMES )</a> <a href="#ledger">( LEDGER )</a></nav>
+        <nav className="mono">{[["#chit", "CHIT"], ["#agents", "AGENTS"], ["#outcomes", "OUTCOMES"], ["#ledger", "LEDGER"]].map(([h, l]) => <a key={h} href={h}><i>(</i> {l} <i>)</i></a>)}</nav>
         <span className="mono nav-right">+ ( {state.rails === "razorpay-test" ? "RAZORPAY TEST MODE" : "RAZORPAY SIMULATED"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
       </header>
 
       <section className="hero" id="chit" aria-label="The chit">
-        <h1 className="giant" aria-label={c.status === "setup" ? "Open the chit" : complete ? "Chit complete" : `Month ${Math.min(c.month_done + (running ? 1 : 0), c.members)}`}>
-          {c.status === "setup" ? "THE CHIT" : complete ? "SETTLED" : <>MONTH <span>{String(Math.min(c.month_done + (running ? 1 : 0), c.members)).padStart(2, "0")}</span></>}
+        <h1 className="giant" aria-label={headline.replace("|", " ")} key={headline}>
+          {headline.split("").map((ch, i) => ch === "|" || ch === " " ? <span key={i} className="ch ch-space" /> : <span key={i} className={`ch${i >= headline.indexOf("|") && headline.includes("|") ? " ch-heat" : ""}`} style={{ animationDelay: `${0.9 + i * 0.045}s` }}>{ch}</span>)}
         </h1>
         <div className="panel panel-yellow hero-panel">
-          <Flower className="deco deco-1" size={120} />
-          <Flower className="deco deco-2" size={70} petals={5} />
+          <span className="rail rail-l mono" aria-hidden="true">+ ( CHIT ) ( AUCTION ) + ( SHARE OF DISCOUNT ) + ( RAZORPAY ) + ( CHIT ) ( AUCTION ) +</span>
+          <span className="rail rail-r mono" aria-hidden="true">+ ( MANDATE ) ( PAYOUT ) + ( MINUTES OF THE DRAW ) + ( HATHI ) + ( MANDATE ) ( PAYOUT ) +</span>
+          <Flower className="deco deco-1 burst-load" size={120} />
+          <Flower className="deco deco-2 burst-load" size={70} petals={5} />
+          <svg className="deco deco-3 burst-load" viewBox="0 0 64 60" width="64" height="60" aria-hidden="true"><path d="M32 58 C8 42 0 30 0 18 A14 14 0 0 1 32 12 A14 14 0 0 1 64 18 C64 30 56 42 32 58 Z" /></svg>
           <div className="hero-copy">
-            <p className="mono">( {c.name.toUpperCase()} ) + ( {inr(c.gross)} / {c.members} MONTHS ) + ( {inr(state.instalment ?? 0)} A MONTH ) + ( COMMISSION {c.commissionPct}% ) + ( CEILING {c.maxDiscountPct}% )</p>
+            <p className="mono heat">+ ( {c.name.toUpperCase()} ) + ( {inr(c.gross)} OVER {c.members} MONTHS ) + ( {inr(state.instalment ?? 0)} A MONTH ) + ( COMMISSION {c.commissionPct}% ) + ( CEILING {c.maxDiscountPct}% ) +</p>
             <p className="lede">{c.members - 1} subscribers. One agent each. Agents bid, code settles, Razorpay moves the money.</p>
             <div className="controls">
               {c.status === "setup" && <button className="pill" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/start")}>Open the chit on Razorpay</button>}
@@ -237,14 +249,22 @@ export function App() {
           <p className="notice mono">( {mandates} OF {state.members.length} MANDATES AUTHORISED ) {state.rails === "razorpay-test" ? "OPEN EACH SUBSCRIBER'S REGISTRATION LINK (ALL TICKETS TAB) AND AUTHORISE IT WITH A RAZORPAY TEST CARD; UNTIL THEN THAT TICKET PAYS BY PAYMENT LINK." : "THE SIMULATED SUBSCRIBERS AUTHORISE THEIRS IN A MOMENT."}</p>
         )}
 
-        <ol className="steps" aria-label="How a month runs">
+        <section className="what" data-reveal aria-label="What Hathi does">
+          <span className="mono what-cap what-cap-1">EVERY MONTH</span>
+          <span className="line line-1" aria-hidden="true" /><button className="pill pill-small line-btn line-btn-1" onClick={() => document.getElementById("agents")?.scrollIntoView({ behavior: "smooth" })}>Watch the ring</button>
+          <h2 className="stack"><span>WHAT</span><span className="heat">HATHI</span><span className="chip-row">* <i className="paren">(</i><span className="chip"><Mascot mood="idle" /></span><i className="paren">)</i></span><span>DOES</span></h2>
+          <span className="mono what-cap what-cap-2">UNDER THE ACT</span>
+          <span className="line line-2" aria-hidden="true" /><a className="pill pill-small line-btn line-btn-2" href={state.draws.length ? `/api/minutes/${state.draws.at(-1)!.month}` : "#ledger"} target={state.draws.length ? "_blank" : undefined} rel="noreferrer">Read the minutes</a>
+        </section>
+
+        <ol className="steps" data-reveal aria-label="How a month runs">
           <li className={stepState(0)}><strong>Collect the instalments</strong><em className="mono">( RAZORPAY MANDATES )</em></li>
           <li className={stepState(1)}><strong>Auction the pot</strong><em className="mono">( ONE AGENT PER SUBSCRIBER )</em></li>
           <li className={stepState(2)}><strong>Pay the prize</strong><em className="mono">( RAZORPAYX PAYOUT )</em></li>
           <li className={stepState(3)}><strong>Record the minutes</strong><em className="mono">( CODE, UNDER THE ACT )</em></li>
         </ol>
 
-        <div className="work" id="agents">
+        <div className="work" id="agents" data-reveal>
           <section className="card map" aria-label="The chit">
             <Ring members={state.members} answers={answers} draw={draw} month={month} pot={pot} phase={phase} />
             <p className="key">
@@ -256,8 +276,8 @@ export function App() {
         </div>
 
         {state.draws.length > 0 && (
-          <section className="card outcomes" id="outcomes" aria-label="What each subscriber got">
-            <h2>What the chit did for each subscriber{complete ? "" : " so far"}</h2>
+          <section className="card outcomes" id="outcomes" data-reveal aria-label="What each subscriber got">
+            <h2 className="display">WHO GOT WHAT{complete ? "" : " SO FAR"}</h2>
             <p className="sub">{complete ? "The rate is the yearly rate implied by each ticket's own cash flows: a borrowing cost for those prized early, a saving return for those prized late. For comparison, a personal loan is 14–24% and a fixed deposit about 7%." : "Rates appear once the chit completes."}</p>
             <ul className="people">
               {state.members.map((m) => { const o = state.outcomes.find((x) => x.id === m.id); if (!o) return null; return (
@@ -273,9 +293,9 @@ export function App() {
           </section>
         )}
 
-        <div id="ledger"><Ledger state={state} /></div>
+        <div id="ledger" data-reveal><Ledger state={state} /></div>
 
-        <div className="tiles">
+        <div className="tiles" data-reveal>
           <div className="tile"><strong>{c.members - 1}</strong><span className="mono">( AGENTS, ONE PER SUBSCRIBER )</span></div>
           <div className="tile"><strong>0</strong><span className="mono">( RUPEES DECIDED BY A MODEL )</span></div>
           <div className="tile"><strong>3</strong><span className="mono">( RAZORPAY RAILS: MANDATES, LINKS, PAYOUTS )</span></div>
