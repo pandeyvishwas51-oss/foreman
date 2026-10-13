@@ -4,14 +4,16 @@ import { extname, join, normalize } from "node:path";
 import { loadConfig } from "./config.ts";
 import { openDb, type Member } from "./db.ts";
 import { audit, dueThisMonth, flows, instalment, yearlyRate, type Draw } from "./engine.ts";
-import { payoutSettled, reconcile, refreshMandates, retryPrize, runMonth, startChit, type Deps } from "./month.ts";
+import { payoutSettled, reconcile, refreshMandates, retryPrize, runMonth, setPayBase, settleCollection, startChit, type Deps } from "./month.ts";
+import type { Collection } from "./db.ts";
 import { seed } from "./seed.ts";
 
 const config = loadConfig();
+setPayBase(config.publicUrl ?? `http://localhost:${config.port}`);
 // The simulated Razorpay lives in memory, so its books must too; otherwise a restart would leave them disagreeing.
 const db = openDb(config.live ? undefined : ":memory:");
 if (!config.live) { /* simulated books live in memory */ }
-const deps: Deps = { db, rails: config.rails, brain: config.brain, waitMs: config.live ? 25000 : 6000 };
+const deps: Deps = { db, rails: config.rails, brain: config.brain, waitMs: config.collectWaitMs };
 
 let busy: string | null = null;
 const monthTimes: number[] = [];
@@ -36,7 +38,7 @@ function state() {
   return {
     rails: config.rails.mode, agents: config.brain.kind, webhooks: Boolean(config.live && config.publicUrl), busy,
     chit, instalment: t ? instalment(t) : null, dueNext: t ? dueThisMonth(t, (draws.at(-1) as unknown as Draw) ?? null) : null,
-    members: members.map(({ token_id: _t, customer_id: _c, contact_id: _k, fund_account_id: _f, ...m }: Member) => m),
+    members: members.map(({ token_id: _t, ...m }: Member) => m),
     draws, bids: db.all("SELECT * FROM bid ORDER BY id"), collections: db.all("SELECT * FROM collection ORDER BY id"), payouts: db.all("SELECT * FROM payout ORDER BY id"),
     events: db.all("SELECT * FROM event ORDER BY id"), received: db.all("SELECT * FROM webhook ORDER BY at DESC"),
     outcomes, audit: t && draws.length === t.members ? audit(t, draws as unknown as Draw[], members.filter((m) => !m.is_foreman).map((m) => m.id)) : null,
@@ -68,6 +70,22 @@ async function webhook(req: IncomingMessage): Promise<{ status: number; body: ob
   return { status: 200, body: { outcome } };
 }
 
+function payPage(o: { keyId: string | null; orderId: string; amount: number; name: string; email: string; contact: string; chit: string; month: number; paid: boolean; collectionId: number }) {
+  const esc = (x: string) => x.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+  const rupees = `₹${(o.amount / 100).toLocaleString("en-IN")}`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FOREMAN · pay instalment</title>
+<style>body{margin:0;font:16px/1.5 Inter,system-ui,sans-serif;background:#ffd000;color:#0b0b0b;display:grid;place-items:center;min-height:100vh}.c{background:#fff;border:1.5px solid #0b0b0b;border-radius:28px;padding:36px 40px;max-width:520px;text-align:center}.m{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#ff4b2b}h1{font-size:44px;margin:10px 0 4px;letter-spacing:-.02em}p{margin:6px 0;color:#555}button{margin-top:18px;padding:14px 28px;border:0;border-radius:10px;background:#0b0b0b;color:#fff;font:600 16px Inter,system-ui,sans-serif;cursor:pointer}.ok{color:#0f8f5f;font-weight:600}</style></head>
+<body><div class="c"><div class="m">( ${esc(o.chit)} ) + ( MONTH ${o.month} ) + ( TEST MODE )</div><h1>${rupees}</h1><p>${esc(o.name)}'s instalment, Razorpay order <code>${esc(o.orderId)}</code></p>
+${o.paid ? '<p class="ok">Paid. Thank you.</p>' : o.keyId ? '<button id="pay">Pay with Razorpay</button><p id="out"></p>' : '<p>This server has no Razorpay key, so checkout cannot open.</p>'}</div>
+${o.keyId && !o.paid ? `<script src="https://checkout.razorpay.com/v1/checkout.js"></script><script>
+const rzp = new Razorpay({ key: ${JSON.stringify(o.keyId)}, order_id: ${JSON.stringify(o.orderId)}, amount: ${o.amount}, currency: "INR", name: "FOREMAN", description: ${JSON.stringify(`${o.chit}: month ${o.month} instalment`)},
+  prefill: { name: ${JSON.stringify(o.name)}, email: ${JSON.stringify(o.email)}, contact: ${JSON.stringify(o.contact)} }, theme: { color: "#0b0b0b" },
+  handler: async (r) => { const res = await fetch("/api/paid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ collection: ${o.collectionId}, ...r }) }); document.getElementById("out").textContent = res.ok ? "Paid. Thank you." : "Payment made, but the signature check failed."; document.getElementById("out").className = res.ok ? "ok" : ""; } });
+document.getElementById("pay").onclick = () => rzp.open();
+setTimeout(() => rzp.open(), 400);
+</script>` : ""}</body></html>`;
+}
+
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json", ".woff2": "font/woff2" };
 const DIST = join(import.meta.dirname, "..", "dist");
 async function serveStatic(path: string, res: ServerResponse) {
@@ -95,6 +113,23 @@ const server = createServer(async (req, res) => {
       void exclusive("running the month", () => runMonth(deps)).catch((e) => { console.error(e); db.say(null, "foreman", "error", `Month stopped: ${e instanceof Error ? e.message : e}`); });
       return send(res, 202, { started: true });
     }
+    if (route === "POST /api/run-all") {
+      if (busy) return send(res, 409, { error: `Busy: ${busy}.` });
+      const chit = db.chit();
+      if (!chit || chit.status !== "running") return send(res, 409, { error: "Open the chit first." });
+      // Months back to back, with a breath between them so each one can be watched.
+      void exclusive("running the chit", async () => {
+        for (let m = chit.month_done + 1; m <= chit.members; m++) {
+          const hourAgo = Date.now() - 3600_000;
+          while (monthTimes.length && monthTimes[0] < hourAgo) monthTimes.shift();
+          if (monthTimes.length >= MAX_MONTHS_PER_HOUR) break;
+          monthTimes.push(Date.now());
+          await runMonth(deps);
+          await new Promise((r) => setTimeout(r, 7000));
+        }
+      }).catch((e) => { console.error(e); db.say(null, "foreman", "error", `Run stopped: ${e instanceof Error ? e.message : e}`); });
+      return send(res, 202, { started: true });
+    }
     const retry = url.pathname.match(/^\/api\/retry\/(\d+)$/);
     if (req.method === "POST" && retry) { await exclusive("sending the prize again", () => retryPrize(deps, Number(retry[1]))); return send(res, 200, state()); }
     if (route === "POST /api/reset") { if (busy) return send(res, 409, { error: `Busy: ${busy}.` }); seed(db); return send(res, 200, state()); }
@@ -103,6 +138,23 @@ const server = createServer(async (req, res) => {
       const d = db.get<{ minutes: string }>("SELECT minutes FROM draw WHERE month = ?", Number(minutes[1]));
       if (!d) return send(res, 404, { error: "No draw for that month yet." });
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }); return res.end(d.minutes);
+    }
+    // The subscriber's pay page: Razorpay Checkout for one instalment's order, with the public key id only.
+    const pay = url.pathname.match(/^\/pay\/(\d+)$/);
+    if (req.method === "GET" && pay) {
+      const c = db.get<Collection>("SELECT * FROM collection WHERE id = ?", Number(pay[1]));
+      if (!c || !c.order_id) return send(res, 404, { error: "No instalment to pay here." });
+      const m = db.member(c.member);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end(payPage({ keyId: config.keyId, orderId: c.order_id, amount: c.amount, name: m.name, email: m.email, contact: m.phone, chit: db.chit()!.name, month: c.month, paid: c.status === "paid", collectionId: c.id }));
+    }
+    if (route === "POST /api/paid") {
+      const body = JSON.parse(await readBody(req)) as { collection: number; razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+      const c = db.get<Collection>("SELECT * FROM collection WHERE id = ?", Number(body.collection));
+      if (!c || c.order_id !== body.razorpay_order_id) return send(res, 404, { error: "Unknown instalment" });
+      if (!config.rails.verifyCheckout(body.razorpay_order_id, body.razorpay_payment_id, body.razorpay_signature)) return send(res, 400, { error: "Signature check failed" });
+      settleCollection(db, c, body.razorpay_payment_id);
+      return send(res, 200, { ok: true });
     }
     if (route === "POST /webhooks/razorpay") { const out = await webhook(req); return send(res, out.status, out.body); }
     if (req.method === "GET") return serveStatic(url.pathname, res);

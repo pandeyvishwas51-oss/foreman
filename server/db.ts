@@ -13,7 +13,7 @@ export type Member = {
 export type DrawRow = { month: number; winner: string; discount: number; prize: number; commission: number; share: number; how: string; bidders: string; second_best: number | null; minutes: string; decided_at: string };
 export type BidRow = { id: number; month: number; member: string; wants: number; max_discount_pct: number; reason: string; source: string };
 export type Collection = {
-  id: number; month: number; member: string; amount: number; method: "mandate" | "link" | "simulated"; marker: string;
+  id: number; month: number; member: string; amount: number; method: "mandate" | "checkout" | "link" | "simulated"; marker: string;
   order_id: string | null; payment_id: string | null; link_id: string | null; link_url: string | null;
   status: "pending" | "notified" | "paid" | "failed"; error: string | null; at: string; paid_at: string | null;
 };

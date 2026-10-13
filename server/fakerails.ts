@@ -42,6 +42,13 @@ export function fakeRails(fault: Fault = {}, clock = { linkPaysAfterMs: 2500, pa
       return { orderId: id("order"), paymentId: pay };
     },
     async paymentState(paymentId) { return payments.get(paymentId) ?? "unknown"; },
+    async createOrder(_p, amount) { const o = id("order"); links.set(o, { createdAt: now(), paymentId: null, amount }); return o; },
+    async orderPayments(orderId) {
+      const l = links.get(orderId)!;
+      if (!l.paymentId && now() - l.createdAt > clock.linkPaysAfterMs) { l.paymentId = id("pay"); payments.set(l.paymentId, "captured"); }
+      return l.paymentId ? [{ paymentId: l.paymentId, status: "captured" }] : [];
+    },
+    verifyCheckout() { return false; },
     async createPaymentLink(_p, amount) { const l = id("plink"); links.set(l, { createdAt: now(), paymentId: null, amount }); return { id: l, url: `https://rzp.io/fake/${l}` }; },
     async paymentLinkState(linkId) {
       const l = links.get(linkId)!;

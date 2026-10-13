@@ -307,3 +307,20 @@ details blockquote { margin-top: 6px; padding: 8px 12px; border-radius: 12px; ba
 .dock { position: fixed; left: 50%; bottom: 22px; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 18px; border-radius: 14px; background: var(--yellow); border: 1.5px solid var(--ink); box-shadow: 0 16px 40px rgb(0 0 0 / 0.25); transform: translate(-50%, 140%); opacity: 0; transition: transform 0.6s cubic-bezier(.2,.8,.2,1), opacity 0.4s; }
 .dock.is-shown { transform: translate(-50%, 0); opacity: 1; }
 .dock .pill-small { padding: 9px 18px; }
+
+/* live feed */
+.feed { margin-bottom: 14px; padding-bottom: 8px; }
+.feed-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.feed-head .mono { color: var(--slate); }
+.pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--grey-2); margin-left: auto; }
+.pulse.is-on { background: var(--red); animation: pulse 0.9s ease-in-out infinite; box-shadow: 0 0 0 6px rgb(255 75 43 / 0.2); }
+.feed-list { list-style: none; padding: 0; margin: 12px 0 0; max-height: 330px; overflow-y: auto; display: grid; gap: 4px; }
+.feed-row { display: grid; grid-template-columns: 170px 110px 110px minmax(0, 1fr) 150px; gap: 12px; align-items: center; padding: 8px 12px; border-radius: 10px; background: var(--grey); font-size: 13.5px; }
+.feed-row.is-new { animation: feedIn 0.7s cubic-bezier(.2,.8,.2,1); }
+@keyframes feedIn { from { transform: translateX(-16px); opacity: 0; background: var(--yellow); } 60% { background: var(--yellow); } to { transform: none; opacity: 1; } }
+.feed-kind { color: var(--ink); } .feed-who { font-weight: 600; } .feed-amt { text-align: right; font-variant-numeric: tabular-nums; }
+.feed-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; color: var(--slate); }
+.feed-status { text-align: right; }
+.tone-ok .feed-status { color: var(--green); } .tone-bad .feed-status { color: var(--red); } .tone-wait .feed-status { color: #8a5a00; }
+.tone-ok { background: var(--green-wash); } .tone-bad { background: var(--red-wash); }
+@media (max-width: 900px) { .feed-row { grid-template-columns: 1fr 1fr; } .feed-id { display: none; } }

@@ -25,12 +25,18 @@ export async function startChit({ db, rails }: Deps) {
     const fundAccountId = m.fund_account_id ?? (await rails.createFundAccount(contactId, { name: m.name, ifsc: "HDFC0000053", number: `5010${String(m.ticket).padStart(8, "0")}` }));
     db.run("UPDATE member SET customer_id = ?, contact_id = ?, fund_account_id = ? WHERE id = ?", customerId, contactId, fundAccountId, m.id);
     if (!m.mandate_id) {
-      const link = await rails.createMandate(customerId, p, instalment(t), `${chit.id}:${m.id}:mandate`);
-      db.run("UPDATE member SET mandate_id = ?, mandate_url = ?, mandate_status = 'sent' WHERE id = ?", link.id, link.url, m.id);
+      try {
+        const link = await rails.createMandate(customerId, p, instalment(t), `${chit.id}:${m.id}:mandate`);
+        db.run("UPDATE member SET mandate_id = ?, mandate_url = ?, mandate_status = 'sent' WHERE id = ?", link.id, link.url, m.id);
+      } catch (e) {
+        if (!errText(e).includes("switched off")) throw e;
+        db.run("UPDATE member SET mandate_status = 'none' WHERE id = ?", m.id); // instalments go out as payment links
+      }
     }
   }
   db.run("UPDATE chit SET status = 'running', started = ? WHERE id = ?", db.now(), chit.id);
-  db.say(null, "foreman", "open", `${chit.name} is open: ${inr(t.gross)} over ${t.members} months, ${inr(instalment(t))} a month. ${db.members().length} mandates sent for authorisation.`);
+  const sent = db.members().filter((m) => m.mandate_status === "sent").length;
+  db.say(null, "foreman", "open", `${chit.name} is open: ${inr(t.gross)} over ${t.members} months, ${inr(instalment(t))} a month. ${sent ? `${sent} mandates sent for authorisation.` : "Instalments will go out as payment links each month."}`);
 }
 
 // Asks Razorpay which mandates the subscribers have authorised since we last looked.
@@ -76,7 +82,8 @@ export async function runMonth(deps: Deps) {
     await refreshMandates(deps);
     const onMandate = db.members().filter((m) => m.mandate_status === "active" && m.token_id).length;
     if (onMandate) say("razorpay", "debit", `Debiting ${inr(due)} from ${onMandate} tickets against their standing mandates${onMandate < members.length ? `; ${members.length - onMandate} without a mandate get a payment link` : ""}.`);
-    await Promise.all(db.members().map((m) => collect(deps, month, m, due)));
+    // One at a time: Razorpay rate-limits bursts of link creation, and ten in a row is quick enough.
+  for (const m of db.members()) await collect(deps, month, m, due);
     await waitForCollections(deps, month);
     // Demo pacing: the collection round lasts long enough to be watched, as a real one lasts days.
     await sleep(Math.min(6000, members.length * (deps.paceMs ?? 450)));
@@ -136,28 +143,35 @@ export async function runMonth(deps: Deps) {
   return month;
 }
 
+const runTag = (db: Db) => Number(db.chit()!.seed.split(":")[1] ?? 0).toString(36).slice(-6);
+
 async function collect({ db, rails }: Deps, month: number, m: Member, amount: number) {
-  const marker = `FM-${db.chit()!.id}-M${month}-${m.id}`;
+  // The run tag (from the chit's seed) keeps Razorpay reference ids unique across resets of the same demo chit.
+  const marker = `FM-${runTag(db)}-M${month}-${m.id}`;
   if (db.get("SELECT 1 FROM collection WHERE marker = ?", marker)) return; // a retry of this month never asks twice
   const desc = `${db.chit()!.name}: month ${month} instalment, ticket ${m.ticket}`;
   const useMandate = m.mandate_status === "active" && m.token_id && m.customer_id;
-  const row = Number(db.run("INSERT INTO collection (month, member, amount, method, marker, status, at) VALUES (?, ?, ?, ?, ?, 'pending', ?)", month, m.id, amount, useMandate ? "mandate" : "link", marker, db.now()).lastInsertRowid);
+  const row = Number(db.run("INSERT INTO collection (month, member, amount, method, marker, status, at) VALUES (?, ?, ?, ?, ?, 'pending', ?)", month, m.id, amount, useMandate ? "mandate" : "checkout", marker, db.now()).lastInsertRowid);
   try {
     if (useMandate) {
       const { orderId, paymentId } = await rails.charge(m.customer_id!, m.token_id!, person(m), amount, marker, desc);
       db.run("UPDATE collection SET order_id = ?, payment_id = ?, status = 'notified' WHERE id = ?", orderId, paymentId, row);
-    } else await sendLink({ db, rails } as Deps, month, m, amount, marker, desc, row);
+    } else await sendOrder({ db, rails } as Deps, month, m, amount, marker, desc, row);
   } catch (e) {
     db.run("UPDATE collection SET status = 'failed', error = ? WHERE id = ?", errText(e), row);
     db.say(month, "razorpay", "declined", `${m.name}'s debit failed (${errText(e)}).`, { member: m.id });
   }
 }
 
-async function sendLink({ db, rails }: Deps, month: number, m: Member, amount: number, marker: string, desc: string, row: number) {
-  const link = await rails.createPaymentLink(person(m), amount, `${marker}-link`, desc);
-  db.run("UPDATE collection SET method = 'link', link_id = ?, link_url = ?, status = 'notified', error = NULL WHERE id = ?", link.id, link.url, row);
-  db.say(month, "razorpay", "link", `${m.name} has no usable mandate this month, so a payment link for ${inr(amount)} went out with reminders.`, { member: m.id, url: link.url });
+// A Razorpay Order for the instalment, paid through Razorpay Checkout on FOREMAN's own pay page.
+async function sendOrder({ db, rails }: Deps, month: number, m: Member, amount: number, marker: string, desc: string, row: number) {
+  const orderId = await rails.createOrder(person(m), amount, `${marker}-order`, desc);
+  const url = `${payBase}/pay/${row}`;
+  db.run("UPDATE collection SET method = 'checkout', order_id = ?, link_url = ?, status = 'notified', error = NULL, at = ? WHERE id = ?", orderId, url, db.now(), row);
+  db.say(month, "razorpay", "link", `${m.name} has no usable mandate this month: Razorpay order ${orderId} for ${inr(amount)} is waiting to be paid at checkout.`, { member: m.id, url });
 }
+export let payBase = process.env.PUBLIC_URL?.replace(/\/$/, "") || `http://localhost:${process.env.PORT ?? 8788}`;
+export const setPayBase = (b: string) => { payBase = b; };
 
 // Waits a little for debits to land, then goes on with whatever has: a chit auction does not wait for late payers.
 async function waitForCollections(deps: Deps, month: number) {
@@ -176,13 +190,22 @@ export async function reconcileCollections({ db, rails }: Deps, month?: number) 
     const m = db.member(c.member);
     try {
       if (c.status === "failed") {
-        if (!c.link_id) await sendLink({ db, rails } as Deps, c.month, m, c.amount, c.marker, `${db.chit()!.name}: month ${c.month} instalment, ticket ${m.ticket}`, c.id);
+        // A declined debit falls back to a checkout order at once. A creation that failed (say, a rate limit) is
+        // retried at most once every 20 seconds, so Razorpay is not hammered.
+        const declined = c.method === "mandate", creationFailed = c.method === "checkout" && !c.order_id;
+        if (declined || (creationFailed && Date.now() - Date.parse(c.at) > 20000)) {
+          db.run("UPDATE collection SET at = ? WHERE id = ?", db.now(), c.id);
+          await sendOrder({ db, rails } as Deps, c.month, m, c.amount, c.marker, `${db.chit()!.name}: month ${c.month} instalment, ticket ${m.ticket}`, c.id);
+        }
         continue;
       }
       let state: "paid" | "failed" | "waiting" = "waiting", paymentId = c.payment_id;
       if (c.method === "mandate" && c.payment_id) {
         const s = await rails.paymentState(c.payment_id);
         state = s === "captured" ? "paid" : s === "failed" ? "failed" : "waiting";
+      } else if (c.order_id) {
+        const captured = (await rails.orderPayments(c.order_id)).find((x) => x.status === "captured");
+        if (captured) { state = "paid"; paymentId = captured.paymentId; }
       } else if (c.link_id) {
         const s = await rails.paymentLinkState(c.link_id);
         if (s.paid) { state = "paid"; paymentId = s.paymentId; }
@@ -196,7 +219,7 @@ export async function reconcileCollections({ db, rails }: Deps, month?: number) 
   }
 }
 
-function settleCollection(db: Db, c: Collection, paymentId: string | null) {
+export function settleCollection(db: Db, c: Collection, paymentId: string | null) {
   const won = db.run("UPDATE collection SET status = 'paid', payment_id = COALESCE(?, payment_id), paid_at = ? WHERE id = ? AND status != 'paid'", paymentId, db.now(), c.id).changes;
   if (!won) return;
   const m = db.member(c.member);
@@ -204,15 +227,15 @@ function settleCollection(db: Db, c: Collection, paymentId: string | null) {
   const lateNow = c.month <= chit.month_done; // paid after the auction closed: clears the arrears
   if (lateNow && m.arrears > 0) db.run("UPDATE member SET arrears = arrears - 1 WHERE id = ?", m.id);
   // Routine mandate debits are summed up in the month's "collected" line; links and late payments get their own.
-  if (c.method === "link" || lateNow) db.say(c.month, "razorpay", "paid", `${inr(c.amount)} received from ${m.name}${c.method === "link" ? " through the payment link" : ""}${lateNow ? "; arrears cleared" : ""}.`, { member: m.id });
+  if (c.method !== "mandate" || lateNow) db.say(c.month, "razorpay", "paid", `${inr(c.amount)} received from ${m.name}${c.method === "checkout" ? ` at checkout (${paymentId ?? "payment"})` : c.method === "link" ? " through the payment link" : ""}${lateNow ? "; arrears cleared" : ""}.`, { member: m.id });
 }
 
 async function payPrize({ db, rails }: Deps, month: number, winner: Member, amount: number, attempt: number) {
   if (winner.is_foreman) {
-    db.run("INSERT INTO payout (month, member, amount, kind, idempotency, status, at) VALUES (?, 'foreman', ?, 'prize', ?, 'retained', ?)", month, amount, `FM-P-M${month}-foreman`, db.now());
+    db.run("INSERT OR IGNORE INTO payout (month, member, amount, kind, idempotency, status, at) VALUES (?, 'foreman', ?, 'prize', ?, 'retained', ?)", month, amount, `FM-P-M${month}-foreman`, db.now());
     return;
   }
-  const idem = `FM-P-M${month}-${winner.id}-${attempt}`;
+  const idem = `FM-${runTag(db)}-P-M${month}-${winner.id}-${attempt}`;
   const row = Number(db.run("INSERT INTO payout (month, member, amount, kind, idempotency, status, at) VALUES (?, ?, ?, 'prize', ?, 'pending', ?)", month, winner.id, amount, idem, db.now()).lastInsertRowid);
   try {
     const p = await rails.createPayout(winner.fund_account_id!, amount, idem, idem, `Chit M${month} prize`);

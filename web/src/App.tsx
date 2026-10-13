@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Agents } from "./Agents.tsx";
 import { Ledger } from "./Ledger.tsx";
+import { Feed } from "./Feed.tsx";
 import { Ring, type Answer } from "./Ring.tsx";
 import { Flower, Mascot, type Mood } from "./Mascot.tsx";
 import type { State } from "./types.ts";
@@ -66,7 +67,7 @@ export function App() {
   const view = useMemo(() => {
     if (!state?.chit) return null;
     const c = state.chit;
-    const running = Boolean(state.busy && state.busy.includes("month"));
+    const running = Boolean(state.busy && (state.busy.includes("month") || state.busy.includes("chit")));
     const month = running ? c.month_done + 1 : Math.max(1, c.month_done);
     const ev = state.events.filter((e) => e.month === month);
     const kinds = new Set(ev.map((e) => e.kind));
@@ -228,6 +229,7 @@ export function App() {
         <div className={`dock${heroFocused ? "" : " is-shown"}`}>
           <span className="mono">( {c.name.toUpperCase()} ) + ( MONTH {Math.min(c.month_done + (running ? 1 : 0), c.members)} / {c.members} )</span>
           {c.status === "running" && <button className="pill pill-small" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/month")}>{running ? state.busy : `Run month ${c.month_done + 1}`}{!running && state.dueNext != null && <small>{inr(state.dueNext)} due per ticket</small>}</button>}
+          {c.status === "running" && !running && <button className="pill pill-small pill-ghost" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/run-all")}>Whole chit</button>}
           {complete && <span className="pill pill-small pill-red">Chit complete</span>}
         </div>
       )}
@@ -235,7 +237,7 @@ export function App() {
       <header className="nav">
         <span className="wordmark">FOREMAN</span>
         <nav className="mono">{[["#chit", "CHIT"], ["#agents", "AGENTS"], ["#outcomes", "OUTCOMES"], ["#ledger", "LEDGER"]].map(([h, l]) => <a key={h} href={h}><i>(</i> {l} <i>)</i></a>)}</nav>
-        <span className="mono nav-right">+ ( {state.rails === "razorpay-test" ? "RAZORPAY TEST MODE" : state.rails === "razorpay-test-no-x" ? "RAZORPAY TEST MODE · PAYOUTS SIMULATED" : "RAZORPAY SIMULATED"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
+        <span className="mono nav-right">+ ( {state.rails === "simulated" ? "RAZORPAY SIMULATED" : "RAZORPAY TEST MODE"} ) ( {state.agents === "claude" ? "CLAUDE AGENTS" : "RULE-BASED AGENTS"} )</span>
       </header>
 
       <section className="hero" id="chit" data-block aria-label="The chit">
@@ -254,6 +256,7 @@ export function App() {
             <div className="controls">
               {c.status === "setup" && <button className="pill" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/start")}>Open the chit on Razorpay</button>}
               {c.status === "running" && <button className="pill" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/month")}>{running ? state.busy : `Run month ${c.month_done + 1}`}{!running && state.dueNext != null && <small>{inr(state.dueNext)} due per ticket</small>}</button>}
+              {c.status === "running" && !running && <button className="pill pill-ghost" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/run-all")}>Run the whole chit</button>}
               {complete && <span className="pill pill-red">Chit complete</span>}
               {retryable.map((mo) => <button key={mo} className="pill pill-ghost" disabled={acting || Boolean(state.busy)} onClick={() => act(`/api/retry/${mo}`)}>Send month {mo} prize again</button>)}
               {c.status !== "setup" && <button className="pill pill-ghost" disabled={acting || Boolean(state.busy)} onClick={() => act("/api/reset")}>Start over</button>}
@@ -273,6 +276,7 @@ export function App() {
         </div>
         {state.rails === "simulated" && <p className="mono strip">( SIMULATED RAZORPAY + RULE-BASED AGENTS ) + ( WITH TEST KEYS AND A MODEL THE SAME CODE MOVES TEST MONEY AND THE AGENTS THINK FOR THEMSELVES )</p>}
         {state.rails === "razorpay-test-no-x" && <p className="mono strip">( RAZORPAY TEST MODE: CUSTOMERS, MANDATES, DEBITS, PAYMENT LINKS, CONTACTS AND FUND ACCOUNTS ARE REAL ) + ( THE PRIZE PAYOUT RUNS ON THE SIMULATED RAIL: RAZORPAYX NEEDS A BUSINESS CURRENT ACCOUNT THIS MERCHANT DOES NOT HAVE )</p>}
+        {state.rails === "razorpay-test-links" && <p className="mono strip">( RAZORPAY TEST MODE: CUSTOMERS, ORDERS, CHECKOUT PAYMENTS, CONTACTS AND FUND ACCOUNTS ARE REAL ) + ( THIS MERCHANT HAS NO RECURRING-DEBIT OR RAZORPAYX ACCESS, SO SUBSCRIBERS PAY EACH INSTALMENT AT RAZORPAY CHECKOUT AND THE PRIZE PAYOUT RUNS ON THE SIMULATED RAIL )</p>}
       </section>
 
       <main className="page">
@@ -306,6 +310,8 @@ export function App() {
           </section>
           <Agents members={state.members} events={state.events} bids={state.bids} month={month} thinking={thinking} agents={state.agents} instalment={state.instalment} />
         </div>
+
+        <div data-reveal data-block><Feed state={state} /></div>
 
         {state.draws.length > 0 && (
           <section className="card outcomes" id="outcomes" data-reveal data-block aria-label="What each subscriber got">

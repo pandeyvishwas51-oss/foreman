@@ -33,14 +33,14 @@ test("a whole chit runs: every subscriber prized once, books balance, minutes ke
   assert.ok(deps.db.all("SELECT 1 FROM payout WHERE kind = 'prize' AND status = 'processed'").length >= 8);
 });
 
-test("a declined debit falls back to a payment link; the subscriber sits out the auction, then arrears clear", async () => {
+test("a declined debit falls back to a checkout order; the subscriber sits out the auction, then arrears clear", async () => {
   const rails = fakeRails({ declineChargeFor: new Set(["revathi:M2"]) }, { linkPaysAfterMs: 2500, payoutDoneAfterMs: 200 });
   const deps = await open(rails);
   await runMonth(deps); // month 1
   await runMonth(deps); // month 2: revathi's debit is declined
-  const c = deps.db.get<{ status: string; method: string; link_id: string }>("SELECT status, method, link_id FROM collection WHERE month = 2 AND member = 'revathi'")!;
-  assert.equal(c.method, "link");
-  assert.ok(c.link_id);
+  const c = deps.db.get<{ status: string; method: string; order_id: string }>("SELECT status, method, order_id FROM collection WHERE month = 2 AND member = 'revathi'")!;
+  assert.equal(c.method, "checkout");
+  assert.ok(c.order_id);
   assert.equal(deps.db.member("revathi").arrears, 1);
   assert.ok(!deps.db.all<{ member: string }>("SELECT member FROM bid WHERE month = 2").some((b) => b.member === "revathi"));
   await sleep(2600); await reconcile(deps);

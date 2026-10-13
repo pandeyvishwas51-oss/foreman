@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { RailsError, type MandateState, type PaymentState, type PayoutState, type Person, type Rails } from "./rails.ts";
 
-export type Keys = { keyId: string; keySecret: string; accountNumber: string; webhookSecret?: string; mandateMethod: "card" | "upi" };
+export type Keys = { keyId: string; keySecret: string; accountNumber: string; webhookSecret?: string; mandateMethod: "card" | "upi" | "none" };
 
 const BASE = "https://api.razorpay.com";
 
@@ -37,6 +37,7 @@ export function razorpayTest(k: Keys): Rails {
     // A registration link: the subscriber pays ₹1 once (card) or authorises a UPI AutoPay mandate (upi). What comes
     // back is an invoice; when it is paid, the payment carries the token every later debit is made against.
     async createMandate(customerId, p, maxAmount, reference) {
+      if (k.mandateMethod === "none") throw new RailsError(0, "mandates are switched off (RAZORPAY_MANDATE=none)");
       const link = await call<{ id: string; short_url: string }>("POST", "/v1/subscription_registration/auth_links", {
         customer: { name: p.name, email: p.email, contact: p.contact }, type: "link", amount: k.mandateMethod === "upi" ? 0 : 100, currency: "INR",
         description: `FOREMAN: monthly chit instalment mandate for ${p.name}`,
@@ -71,6 +72,21 @@ export function razorpayTest(k: Keys): Rails {
     async paymentState(paymentId) {
       const p = await call<{ status: string }>("GET", `/v1/payments/${paymentId}`);
       return (["created", "authorized", "captured", "failed"].includes(p.status) ? p.status : "unknown") as PaymentState;
+    },
+
+    async createOrder(p, amount, marker, description) {
+      const o = await call<{ id: string }>("POST", "/v1/orders", { amount, currency: "INR", receipt: marker.slice(0, 40), notes: { foreman: marker, description, subscriber: p.name } });
+      return o.id;
+    },
+
+    async orderPayments(orderId) {
+      const r = await call<{ items: { id: string; status: string }[] }>("GET", `/v1/orders/${orderId}/payments`);
+      return r.items.map((x) => ({ paymentId: x.id, status: x.status }));
+    },
+
+    verifyCheckout(orderId, paymentId, signature) {
+      const want = createHmac("sha256", k.keySecret).update(`${orderId}|${paymentId}`).digest("hex");
+      return signature.length === want.length && timingSafeEqual(Buffer.from(signature), Buffer.from(want));
     },
 
     async createPaymentLink(p, amount, marker, description) {

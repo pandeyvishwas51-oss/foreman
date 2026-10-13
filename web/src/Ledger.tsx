@@ -27,10 +27,11 @@ export function Ledger({ state }: { state: State }) {
     { field: "month", headerName: "Month", width: 90 },
     { field: "member", headerName: "Ticket", valueFormatter: (p) => who(p.value), width: 190 },
     { field: "amount", headerName: "Instalment", ...money },
-    { field: "method", headerName: "How", valueFormatter: (p) => ({ mandate: "Standing mandate", link: "Payment link", simulated: "Simulated" })[p.value as string] ?? p.value, width: 160 },
+    { field: "method", headerName: "How", valueFormatter: (p) => ({ mandate: "Standing mandate", checkout: "Razorpay Checkout", link: "Payment link", simulated: "Simulated" })[p.value as string] ?? p.value, width: 160 },
     { field: "status", headerName: "Status", valueFormatter: (p) => COLLECT[p.value] ?? p.value, width: 150, cellClassRules: { "is-flagged": (p) => p.value === "failed", "is-settled": (p) => p.value === "paid" } },
+    { field: "order_id", headerName: "Razorpay order", width: 200 },
     { field: "payment_id", headerName: "Razorpay payment", width: 210 },
-    { field: "link_url", headerName: "Link", width: 220, cellRenderer: (p: { value: string | null }) => (p.value ? `<a href="${p.value}" target="_blank" rel="noreferrer">${p.value}</a>` : "") },
+    { field: "link_url", headerName: "Pay page", width: 220, cellRenderer: (p: { value: string | null }) => (p.value ? `<a href="${p.value}" target="_blank" rel="noreferrer">${p.value}</a>` : "") },
     { field: "marker", headerName: "Retry-safe marker", width: 260 },
     { field: "error", headerName: "Problem", flex: 1, minWidth: 160 },
   ];
