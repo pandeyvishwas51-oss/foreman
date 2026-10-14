@@ -2,6 +2,8 @@
 
 **AI agents run a chit fund. Razorpay moves the money.**
 
+**Live demo:** https://foreman-s6z4.onrender.com (free instance; the first load can take a minute). **Demo video (1:51):** [video/foreman-demo.mp4](video/foreman-demo.mp4).
+
 A chit fund is India's oldest savings circle: ten people pay ₹50,000 a month, and every month the ₹5,00,000 pot goes to whoever
 offers to forgo the biggest discount. The discount is shared back to everyone as a cut in next month's instalment. Taking the pot
 early is a loan from the others; waiting is saving. Registered chits move tens of thousands of crores a year, and informal
