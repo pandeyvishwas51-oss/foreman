@@ -84,6 +84,8 @@ export async function runMonth(deps: Deps) {
     if (onMandate) say("razorpay", "debit", `Debiting ${inr(due)} from ${onMandate} tickets against their standing mandates${onMandate < members.length ? `; ${members.length - onMandate} without a mandate get a payment link` : ""}.`);
     // One at a time: Razorpay rate-limits bursts of link creation, and ten in a row is quick enough.
   for (const m of db.members()) await collect(deps, month, m, due);
+  const orders = db.all<Collection>("SELECT * FROM collection WHERE month = ? AND method = 'checkout' AND order_id IS NOT NULL", month);
+  if (orders.length) say("razorpay", "link", `${orders.length} Razorpay orders raised for ${inr(due)} each (${orders.slice(0, 3).map((o) => o.order_id).join(", ")}${orders.length > 3 ? ", …" : ""}); each is payable at its checkout page.`);
     await waitForCollections(deps, month);
     // Demo pacing: the collection round lasts long enough to be watched, as a real one lasts days.
     await sleep(Math.min(6000, members.length * (deps.paceMs ?? 450)));
@@ -168,7 +170,8 @@ async function sendOrder({ db, rails }: Deps, month: number, m: Member, amount: 
   const orderId = await rails.createOrder(person(m), amount, `${marker}-order`, desc);
   const url = `${payBase}/pay/${row}`;
   db.run("UPDATE collection SET method = 'checkout', order_id = ?, link_url = ?, status = 'notified', error = NULL, at = ? WHERE id = ?", orderId, url, db.now(), row);
-  db.say(month, "razorpay", "link", `${m.name} has no usable mandate this month: Razorpay order ${orderId} for ${inr(amount)} is waiting to be paid at checkout.`, { member: m.id, url });
+  // Only a fallback from a declined mandate gets its own line; routine orders are summed up by the caller.
+  if (m.mandate_status === "active") db.say(month, "razorpay", "link", `${m.name}'s mandate could not be debited, so Razorpay order ${orderId} for ${inr(amount)} is waiting at checkout instead.`, { member: m.id, url });
 }
 export let payBase = process.env.PUBLIC_URL?.replace(/\/$/, "") || `http://localhost:${process.env.PORT ?? 8788}`;
 export const setPayBase = (b: string) => { payBase = b; };
@@ -241,7 +244,8 @@ async function payPrize({ db, rails }: Deps, month: number, winner: Member, amou
   try {
     const p = await rails.createPayout(winner.fund_account_id!, amount, idem, idem, `Chit M${month} prize`);
     db.run("UPDATE payout SET payout_id = ?, status = 'sent' WHERE id = ?", p.id, row);
-    db.say(month, "razorpay", "payout", `Paying ${inr(amount)} to ${winner.name} by RazorpayX payout. Waiting for the bank.`, { member: winner.id, payout: p.id });
+    const rail = rails.mode === "razorpay-test" ? "RazorpayX payout" : rails.mode === "simulated" ? "payout" : "payout on the simulated rail (no RazorpayX on this merchant)";
+    db.say(month, "razorpay", "payout", `Paying ${inr(amount)} to ${winner.name} by ${rail}. Waiting for the bank.`, { member: winner.id, payout: p.id });
   } catch (e) {
     db.run("UPDATE payout SET status = 'failed', error = ? WHERE id = ?", errText(e), row);
     db.say(month, "razorpay", "error", `RazorpayX did not accept the prize payout to ${winner.name}: ${errText(e)}. It can be sent again.`, { member: winner.id });
