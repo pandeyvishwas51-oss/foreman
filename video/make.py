@@ -65,14 +65,14 @@ def script(state, shown):
     lines = [
         (1.0, f"Ten people in Lakshmi Nagar save together in a chit. {inr(inst)} a month each, and every month the {inr(gross)} pot goes to whoever gives up the biggest discount. In India this still runs on WhatsApp and trust."),
         (None, "FOREMAN runs it on Razorpay. Each subscriber has an AI agent that works only from its owner's own words."),
-        (first("debit", 1), "Every month Razorpay debits each ticket against a standing mandate, and Hathi, the foreman, counts the instalments in."),
+        (first("debit", 1) if first("debit", 1) is not None else first("link", 1), "Every month, every ticket gets a real Razorpay order, created live in test mode, and Hathi, the foreman, counts the instalments in as they are paid."),
         (first("hammer", 1), "Month one goes to the foreman at the floor discount, as the chit agreement says."),
         (first("auction", 2), "Month two, the agents bid. Meena needs a shop deposit now, so her agent goes high. Kamala is saving, so hers never bids."),
     ]
     if d2:
         lines.append((first("hammer", 2), f"The auction is settled in code: the winner pays one step above the runner-up. {name(d2['winner'])} takes {inr(d2['prize'])} at {pct(d2['discount'])}, and everyone's next instalment falls by {inr(d2['share'])}."))
     lines += [
-        (first("payout", 2), "The prize goes out by RazorpayX payout, under an idempotency key."),
+        (first("payout", 2), "The prize goes out as a payout under an idempotency key. This merchant has no RazorpayX, so that leg runs on the simulated rail; with RazorpayX it is the same call."),
         (first("minutes", 2), "And the minutes the Chit Funds Act asks for are written from the same figures that moved."),
     ]
     if first("declined") is not None:
@@ -80,7 +80,7 @@ def script(state, shown):
     if first("hammer", 4) is not None:
         lines.append((first("hammer", 4), "Month after month: Imran before Diwali, Priya for her oven, Fatima for the college fee. The agents decide how keen. The code decides the money."))
     if done and last:
-        lines.append((first("done"), f"Ten months. Every rupee collected went out as prize or commission, every subscriber was prized once, and every draw stayed inside the Act. FOREMAN: AI agents run the chit, and Razorpay moves the money."))
+        lines.append((first("done"), f"Ten months. Every rupee collected went out as prize or commission, every subscriber was prized once, and every draw stayed inside the Act. FOREMAN: AI agents run the chit, and Razorpay carries the money."))
     out = []
     for i, (t, text) in enumerate(lines):
         if t is None and i != 1:
