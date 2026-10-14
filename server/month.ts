@@ -226,8 +226,9 @@ export function settleCollection(db: Db, c: Collection, paymentId: string | null
   const chit = db.chit()!;
   const lateNow = c.month <= chit.month_done; // paid after the auction closed: clears the arrears
   if (lateNow && m.arrears > 0) db.run("UPDATE member SET arrears = arrears - 1 WHERE id = ?", m.id);
-  // Routine mandate debits are summed up in the month's "collected" line; links and late payments get their own.
-  if (c.method !== "mandate" || lateNow) db.say(c.month, "razorpay", "paid", `${inr(c.amount)} received from ${m.name}${c.method === "checkout" ? ` at checkout (${paymentId ?? "payment"})` : c.method === "link" ? " through the payment link" : ""}${lateNow ? "; arrears cleared" : ""}.`, { member: m.id });
+  // Routine collections are summed up in the month's "collected" line; a real checkout payment or a late one gets its own.
+  const realPay = Boolean(paymentId && !paymentId.startsWith("pay_fake"));
+  if ((c.method !== "mandate" && realPay) || lateNow) db.say(c.month, "razorpay", "paid", `${inr(c.amount)} received from ${m.name}${c.method === "checkout" ? ` at checkout (${paymentId ?? "payment"})` : c.method === "link" ? " through the payment link" : ""}${lateNow ? "; arrears cleared" : ""}.`, { member: m.id });
 }
 
 async function payPrize({ db, rails }: Deps, month: number, winner: Member, amount: number, attempt: number) {
