@@ -61,7 +61,7 @@ export function Agents({ members, events, bids, month, thinking, agents, instalm
                     {e.kind === "hammer" && <b>Hammer</b>}
                     {(e.kind === "paid" || e.kind === "processed" || e.kind === "collected") && <b>Confirmed</b>}
                     {(e.kind === "declined" || e.kind === "error") && <b>Problem</b>}
-                    {e.kind === "link" && <b>Fallback</b>}
+                    {e.kind === "link" && <b>{/order/i.test(e.text) && !/could not be debited/i.test(e.text) ? "Orders" : "Fallback"}</b>}
                   </p>
                   <p>{e.text}</p>
                   {m && (e.kind === "bid" || e.kind === "pass") && <details><summary>What the owner told this agent</summary><blockquote>{m.notes}</blockquote></details>}
