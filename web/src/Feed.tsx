@@ -7,6 +7,7 @@ type Row = { key: string; at: string; kind: string; who: string; amount: number 
 
 export function feedRows(state: State): Row[] {
   const name = new Map(state.members.map((m) => [m.id, m.name.split(" ")[0]]));
+  const sim = state.rails === "simulated" ? "" : state.rails === "razorpay-test" ? "" : " · simulated";
   const rows: Row[] = [];
   for (const m of state.members) {
     if (m.customer_id) rows.push({ key: `cust-${m.id}`, at: state.chit?.id ? "" : "", kind: "customer", who: name.get(m.id) ?? m.id, amount: null, id: m.customer_id, status: "created", tone: "neutral" });
@@ -18,11 +19,11 @@ export function feedRows(state: State): Row[] {
     if (c.method === "checkout" && c.order_id) rows.push({ key: `order-${c.id}`, at: c.at, kind: `order · m${c.month}`, who, amount: c.amount, id: c.order_id, status: c.status === "paid" ? "paid" : "awaiting checkout", tone: c.status === "paid" ? "ok" : "wait" });
     else if (c.link_id) rows.push({ key: `link-${c.id}`, at: c.at, kind: `payment link · m${c.month}`, who, amount: c.amount, id: c.link_id, status: c.status === "paid" ? "paid" : "awaiting payment", tone: c.status === "paid" ? "ok" : "wait" });
     else if (c.order_id) rows.push({ key: `debit-${c.id}`, at: c.at, kind: `mandate debit · m${c.month}`, who, amount: c.amount, id: c.payment_id ?? c.order_id, status: c.status === "paid" ? "captured" : c.status === "failed" ? "declined" : "in flight", tone: c.status === "paid" ? "ok" : c.status === "failed" ? "bad" : "wait" });
-    if (c.payment_id && c.status === "paid" && c.method !== "mandate") rows.push({ key: `pay-${c.id}`, at: c.paid_at ?? c.at, kind: `payment · m${c.month}`, who, amount: c.amount, id: c.payment_id, status: "captured", tone: "ok" });
+    if (c.payment_id && c.status === "paid" && c.method !== "mandate") rows.push({ key: `pay-${c.id}`, at: c.paid_at ?? c.at, kind: `payment · m${c.month}`, who, amount: c.amount, id: c.payment_id, status: c.payment_id.startsWith("pay_fake") ? `captured${sim}` : "captured · real", tone: "ok" });
   }
   for (const p of state.payouts) {
     if (p.kind !== "prize") continue;
-    rows.push({ key: `pout-${p.id}`, at: p.at, kind: `payout · m${p.month}`, who: name.get(p.member) ?? p.member, amount: p.amount, id: p.payout_id ?? p.idempotency, status: p.status, tone: p.status === "processed" ? "ok" : p.status === "failed" || p.status === "reversed" ? "bad" : "wait" });
+    rows.push({ key: `pout-${p.id}`, at: p.at, kind: `payout · m${p.month}`, who: name.get(p.member) ?? p.member, amount: p.amount, id: p.payout_id ?? p.idempotency, status: `${p.status}${state.rails === "razorpay-test" ? "" : sim || (state.rails === "simulated" ? "" : "")}`, tone: p.status === "processed" ? "ok" : p.status === "failed" || p.status === "reversed" ? "bad" : "wait" });
   }
   return rows;
 }

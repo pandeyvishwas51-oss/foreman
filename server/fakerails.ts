@@ -41,9 +41,10 @@ export function fakeRails(fault: Fault = {}, clock = { linkPaysAfterMs: 2500, pa
       void amount;
       return { orderId: id("order"), paymentId: pay };
     },
-    async paymentState(paymentId) { return payments.get(paymentId) ?? "unknown"; },
+    async paymentState(paymentId) { return payments.get(paymentId) ?? "captured"; },
     async createOrder(_p, amount) { const o = id("order"); links.set(o, { createdAt: now(), paymentId: null, amount }); return o; },
     async orderPayments(orderId) {
+      if (!links.has(orderId)) links.set(orderId, { createdAt: now(), paymentId: null, amount: 0 }); // an order made on the real rail
       const l = links.get(orderId)!;
       if (!l.paymentId && now() - l.createdAt > clock.linkPaysAfterMs) { l.paymentId = id("pay"); payments.set(l.paymentId, "captured"); }
       return l.paymentId ? [{ paymentId: l.paymentId, status: "captured" }] : [];
@@ -51,6 +52,7 @@ export function fakeRails(fault: Fault = {}, clock = { linkPaysAfterMs: 2500, pa
     verifyCheckout() { return false; },
     async createPaymentLink(_p, amount) { const l = id("plink"); links.set(l, { createdAt: now(), paymentId: null, amount }); return { id: l, url: `https://rzp.io/fake/${l}` }; },
     async paymentLinkState(linkId) {
+      if (!links.has(linkId)) links.set(linkId, { createdAt: now(), paymentId: null, amount: 0 });
       const l = links.get(linkId)!;
       if (!l.paymentId && now() - l.createdAt > clock.linkPaysAfterMs) { l.paymentId = id("pay"); payments.set(l.paymentId, "captured"); }
       return { paid: Boolean(l.paymentId), paymentId: l.paymentId };

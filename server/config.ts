@@ -14,7 +14,10 @@ export function loadConfig(env = process.env) {
     // RazorpayX payouts need a business current account on the merchant. Without one, every other call is real and
     // only the prize payout runs on the simulated rail, and the page says so.
     rails = accountNumber ? real : { ...real, mode: "razorpay-test-no-x", createPayout: fake.createPayout, payoutState: fake.payoutState };
-    if (env.RAZORPAY_MANDATE === "none") rails = { ...rails, mode: "razorpay-test-links" };
+    // A merchant without Recurring Payments, Smart Collect or RazorpayX cannot have money confirmed by API: orders,
+    // payment links, customers, contacts and fund accounts are still created for real, and the simulated subscriber
+    // pays each order after a moment unless someone pays its pay page for real with a test card.
+    if (env.RAZORPAY_MANDATE === "none") rails = { ...rails, mode: "razorpay-test-links", orderPayments: fake.orderPayments, paymentLinkState: fake.paymentLinkState, paymentState: fake.paymentState };
   }
   const brain: Brain = env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN ? claudeBrain()
     : env.FOREMAN_AGENTS === "claude-plan" ? claudePlanBrain() : scriptedBrain();
