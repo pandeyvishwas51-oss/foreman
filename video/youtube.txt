@@ -1,0 +1,12 @@
+TITLE
+FOREMAN: AI agents run a chit fund, Razorpay carries the money (demo)
+
+DESCRIPTION
+Ten people in Lakshmi Nagar save together in a chit: ₹50,000 a month each, and every month the ₹5,00,000 pot goes to whoever gives up the biggest discount. In India this still runs on WhatsApp and trust.
+
+FOREMAN runs it on Razorpay. Each subscriber has an AI agent (Claude) that works only from its owner's own words and says how keen they are; the auction, the shares of discount, the commission and the minutes the Chit Funds Act requires are all settled in code, in whole paise. Hathi, the elephant foreman, walks the page as it happens.
+
+What you see on Razorpay (test mode): customers, one order per instalment, contacts and fund accounts, created live. This merchant has no Recurring Payments or RazorpayX, so payment and payout confirmations run on a labelled simulated rail; with those products enabled the same code runs end to end.
+
+Code (MIT): https://github.com/pandeyvishwas51-oss/foreman
+Built on the Razorpay developer platform, test mode only. Not a registered chit fund; no real money moves.
