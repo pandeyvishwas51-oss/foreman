@@ -281,7 +281,7 @@ export function App() {
 
       <main className="page">
         {problem && <p className="problem mono" role="alert">( PROBLEM ) {problem}</p>}
-        {c.status === "running" && mandates < state.members.length && (
+        {c.status === "running" && state.members.some((m) => m.mandate_status === "sent") && (
           <p className="notice mono">( {mandates} OF {state.members.length} MANDATES AUTHORISED ) {state.rails !== "simulated" ? "OPEN EACH SUBSCRIBER'S REGISTRATION LINK (ALL TICKETS TAB) AND AUTHORISE IT WITH A RAZORPAY TEST CARD; UNTIL THEN THAT TICKET PAYS BY PAYMENT LINK." : "THE SIMULATED SUBSCRIBERS AUTHORISE THEIRS IN A MOMENT."}</p>
         )}
 
