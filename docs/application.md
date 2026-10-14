@@ -18,12 +18,14 @@ step above the runner-up), the shares of discount are whole paise, the commissio
 minutes the Act requires are written from the same numbers that moved. If an agent fails, its subscriber does not bid; a model
 never does arithmetic on money.
 
-Razorpay carries it: a one-time registration link per subscriber gives a standing mandate, and because a chit instalment changes
-every month, the debits go through Recurring Payments (order + payments/create/recurring against the token) rather than a fixed
-Subscription plan. A declined debit becomes a Payment Link with Razorpay's reminders and that ticket sits out the auction until it
-pays. The prize goes out by RazorpayX payout with an idempotency key, a reversed payout can be re-sent under a new key, and webhooks
-are signature-checked and deduplicated with polling as the safety net. Twelve tests include 300 random chits that must balance to
-the paisa and every subscriber prized exactly once.
+Razorpay carries it. The code has three rails and picks what the merchant allows: standing mandates with Recurring Payments
+(because a chit instalment changes every month, a fixed Subscription plan cannot express it), a Razorpay Order per instalment paid
+at Checkout and verified by signature, and Payment Links for arrears. The prize goes out by RazorpayX payout with an idempotency
+key; a reversed payout can be re-sent under a new key; webhooks are signature-checked and deduplicated with polling as the safety
+net. My own merchant account has neither Recurring Payments nor RazorpayX enabled, so the video runs with real customers, orders,
+contacts and fund accounts on Razorpay test mode and the money confirmations on a labelled simulated rail; the page and the README
+say exactly which is which. Twelve tests include 300 random chits that must balance to the paisa and every subscriber prized
+exactly once, and a month interrupted after its draw that resumes without a second auction or a second prize.
 
 The page shows it rather than tells it: Hathi, the elephant foreman, walks the ring as instalments land, stands at the pot for the
 auction, carries the prize to the winner, and writes the minutes. Rule-based agents stand in when no model is configured and the

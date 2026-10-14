@@ -32,16 +32,21 @@ With nothing configured, FOREMAN runs on a simulated Razorpay with rule-based ag
 **Open the chit on Razorpay**, then **Run month 1**, **Run month 2**, and so on. Months 2 to 9 are auctions; month 3 includes a
 declined debit that falls back to a Payment Link.
 
-**Real mode.** Copy `.env.example` to `.env`. Razorpay **test** keys plus a RazorpayX test account number turn on the real test
-rails (customers, registration links for mandates, recurring debits, Payment Links, contacts, fund accounts, payouts, webhooks).
+**Real mode.** Copy `.env.example` to `.env` and set Razorpay **test** keys (live keys are refused in code).
 `ANTHROPIC_API_KEY` turns on the Claude agents (`FOREMAN_AGENTS=claude-plan` uses the Claude subscription signed in on the
-machine instead). Live keys are refused in code.
+machine instead). What runs on Razorpay depends on what the merchant has enabled, and the page header says which:
 
-Without `RAZORPAYX_ACCOUNT_NUMBER` (RazorpayX needs a business current account), every call is real except the prize
-payout, which runs on the simulated rail; the page says so in the header.
+| Merchant has | Mode | On Razorpay | Simulated |
+|---|---|---|---|
+| Recurring Payments + RazorpayX (`RAZORPAY_MANDATE=card` or `upi`, `RAZORPAYX_ACCOUNT_NUMBER` set) | `razorpay-test` | everything | nothing |
+| Recurring Payments, no RazorpayX | `razorpay-test-no-x` | customers, mandates, debits, orders, links, contacts, fund accounts | the prize payout |
+| Neither (`RAZORPAY_MANDATE=none`) | `razorpay-test-links` | customers, one Order per instalment, Payment Links, contacts, fund accounts | payment and payout confirmations |
 
-In test mode each subscriber's registration link must be authorised once with a Razorpay test card (the page lists the links under
-*All 10 tickets*); after that every debit is API-driven. RazorpayX test payouts sit in *processing* until advanced in the dashboard.
+A standard merchant account usually has neither Recurring Payments nor RazorpayX (both need Razorpay to enable them), so the demo
+video runs in the third mode: every object you see in the live feed exists in the Razorpay test dashboard, and any instalment's
+pay page (`/pay/:id`) can be paid for real with a test card, which the server verifies by signature before the simulated
+subscriber would have paid it. With mandates on, each subscriber's registration link is authorised once with a test card and every
+later debit is API-driven; RazorpayX test payouts sit in *processing* until advanced in the dashboard.
 
 ```
 npm test        # 11 tests: 300 random chits balance to the paisa; declined debit falls back to a link; reversed payout retried; agent failure means no bid
